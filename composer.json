@@ -1,0 +1,26 @@
+Options -Indexes
+
+# Block access to config file
+<Files "config.php">
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Block access to composer files
+<Files "composer.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Allow CORS for API
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type"
+</IfModule>
+
+# Clean URLs (optional)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+</IfModule>

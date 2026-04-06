@@ -1,0 +1,21 @@
+<?php
+// ══════════════════════════════════════════════════════
+//   JANGJU CONFIG — Fill in your details before upload
+// ══════════════════════════════════════════════════════
+
+// ── MongoDB Atlas ──
+define('MONGO_URI', 'mongodb+srv://shankhosa:shankhosa@cluster0.mvdxyux.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0');
+define('MONGO_DB',  'jangju');
+
+// ── Gmail (works on Hostinger & InfinityFree — no port blocking!) ──
+// HOW TO GET APP PASSWORD:
+// 1. Go to myaccount.google.com → Security
+// 2. Turn ON 2-Step Verification
+// 3. Search "App Passwords" → Generate → Copy 16 chars
+define('GMAIL_USER',  'yourgmail@gmail.com');   // ← Your Gmail
+define('GMAIL_PASS',  'xxxx xxxx xxxx xxxx');   // ← 16-char App Password
+define('ADMIN_EMAIL', 'yourgmail@gmail.com');   // ← Where to receive order alerts
+
+// ── Admin Panel Password ──
+define('ADMIN_PASSWORD', 'jangju2025');         // ← Change this to something strong!
+?>

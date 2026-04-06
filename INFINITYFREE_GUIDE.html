@@ -1,0 +1,212 @@
+<?php
+// ── CORS Headers ──
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+// ── Load config & vendor from parent folder ──
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// ── MongoDB Connection ──
+function getDB() {
+    $manager = new MongoDB\Driver\Manager(MONGO_URI);
+    return $manager;
+}
+
+// ── Send Email via Gmail SMTP (PHPMailer) ──
+function sendOrderEmail($order, $orderId) {
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = GMAIL_USER;
+        $mail->Password   = GMAIL_PASS;
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SSL;
+        $mail->Port       = 465;
+
+        $mail->setFrom(GMAIL_USER, 'JANGJU Orders');
+        $mail->addAddress(ADMIN_EMAIL);
+        $mail->isHTML(true);
+        $mail->Subject = "🛒 New JANGJU Order from {$order['name']} - {$order['totalAmount']}";
+
+        $time = $order['createdAt'] ?? date('d M Y, h:i A');
+        $msg  = htmlspecialchars($order['message'] ?? '');
+
+        $mail->Body = "
+        <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e0c88a;border-radius:12px;overflow:hidden;'>
+          <div style='background:linear-gradient(135deg,#3D0C02,#2C1A0A);padding:28px;text-align:center;'>
+            <h1 style='color:#C9A84C;font-size:1.8rem;margin:0;'>&#x1F981; JANGJU &ndash; New Order!</h1>
+            <p style='color:#E8C96E;margin:8px 0 0;'>Saint-Warrior Formula</p>
+          </div>
+          <div style='padding:28px;background:#FDF6E3;'>
+            <div style='background:#f0fff4;border:1.5px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:20px;'>
+              <strong style='color:#15803d;'>Order ID:</strong>
+              <span style='font-family:monospace;color:#15803d;margin-left:8px;'>{$orderId}</span>
+            </div>
+            <table style='width:100%;border-collapse:collapse;'>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;width:120px;'>&#x1F464; Name</td>
+                <td style='padding:10px 8px;font-weight:600;'>{$order['name']}</td>
+              </tr>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F4DE; Phone</td>
+                <td style='padding:10px 8px;font-weight:600;'>{$order['phone']}</td>
+              </tr>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F4CD; Address</td>
+                <td style='padding:10px 8px;font-weight:600;'>{$order['address']}</td>
+              </tr>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F6D2; Quantity</td>
+                <td style='padding:10px 8px;font-weight:600;'>{$order['quantity']}</td>
+              </tr>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F4B0; Amount</td>
+                <td style='padding:10px 8px;font-weight:800;color:#3D0C02;font-size:1.1rem;'>{$order['totalAmount']}</td>
+              </tr>
+              <tr style='border-bottom:1px solid #e0c88a;'>
+                <td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F4B3; Payment</td>
+                <td style='padding:10px 8px;font-weight:600;'>{$order['payment']}</td>
+              </tr>
+              " . ($msg ? "<tr><td style='padding:10px 8px;color:#888;font-weight:700;'>&#x1F4AC; Message</td><td style='padding:10px 8px;font-style:italic;'>{$msg}</td></tr>" : "") . "
+            </table>
+            <div style='margin-top:20px;padding:14px;background:#fffbf0;border:1px solid #fde68a;border-radius:8px;font-size:0.85rem;color:#92400e;'>
+              &#x1F550; Order placed at: {$time} IST
+            </div>
+          </div>
+          <div style='background:#3D0C02;padding:16px;text-align:center;'>
+            <p style='color:#C9A84C;margin:0;font-size:0.85rem;'>Khalsa Dawakhana | Tarn-Taran Sahib, Punjab, India</p>
+            <p style='color:#8B6914;margin:4px 0 0;font-size:0.75rem;'>+91 98557-82707 | +91 70093-99037</p>
+          </div>
+        </div>";
+
+        $mail->send();
+        error_log('✅ Email sent successfully for order: ' . $orderId);
+        return true;
+    } catch (Exception $e) {
+        error_log('❌ Email failed: ' . $mail->ErrorInfo);
+        return false;
+    }
+}
+
+// ── Route Handler ──
+$method = $_SERVER['REQUEST_METHOD'];
+$id     = $_GET['id'] ?? null;
+
+try {
+    $manager = getDB();
+
+    // ── POST — Place new order ──
+    if ($method === 'POST') {
+        $body = json_decode(file_get_contents('php://input'), true);
+
+        $name        = trim($body['name']        ?? '');
+        $phone       = trim($body['phone']       ?? '');
+        $address     = trim($body['address']     ?? '');
+        $quantity    = trim($body['quantity']    ?? '');
+        $payment     = trim($body['payment']     ?? '');
+        $message     = trim($body['message']     ?? '');
+        $totalAmount = trim($body['totalAmount'] ?? '');
+
+        if (!$name || !$phone || !$address) {
+            echo json_encode(['success' => false, 'error' => 'Name, phone and address are required']);
+            exit();
+        }
+
+        $objectId = new MongoDB\BSON\ObjectId();
+        $now      = new MongoDB\BSON\UTCDateTime();
+
+        $doc = [
+            '_id'         => $objectId,
+            'name'        => $name,
+            'phone'       => $phone,
+            'address'     => $address,
+            'quantity'    => $quantity,
+            'payment'     => $payment,
+            'message'     => $message,
+            'totalAmount' => $totalAmount,
+            'status'      => 'Confirmed',
+            'createdAt'   => $now,
+        ];
+
+        $bulk = new MongoDB\Driver\BulkWrite();
+        $bulk->insert($doc);
+        $manager->executeBulkWrite(MONGO_DB . '.orders', $bulk);
+
+        $orderId = (string)$objectId;
+        error_log('✅ Order saved to MongoDB: ' . $orderId);
+
+        // Send email notification
+        $orderArr = [
+            'name'        => $name,
+            'phone'       => $phone,
+            'address'     => $address,
+            'quantity'    => $quantity,
+            'payment'     => $payment,
+            'message'     => $message,
+            'totalAmount' => $totalAmount,
+            'createdAt'   => date('d M Y, h:i A'),
+        ];
+        sendOrderEmail($orderArr, $orderId);
+
+        echo json_encode(['success' => true, 'orderId' => $orderId]);
+        exit();
+    }
+
+    // ── DELETE — Cancel order ──
+    if ($method === 'DELETE' && $id) {
+        try {
+            $objectId = new MongoDB\BSON\ObjectId($id);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'error' => 'Invalid order ID']);
+            exit();
+        }
+
+        $bulk = new MongoDB\Driver\BulkWrite();
+        $bulk->delete(['_id' => $objectId], ['limit' => 1]);
+        $result = $manager->executeBulkWrite(MONGO_DB . '.orders', $bulk);
+
+        if ($result->getDeletedCount() > 0) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Order not found']);
+        }
+        exit();
+    }
+
+    // ── GET — Fetch all orders ──
+    if ($method === 'GET' && !$id) {
+        $query  = new MongoDB\Driver\Query([], ['sort' => ['createdAt' => -1]]);
+        $cursor = $manager->executeQuery(MONGO_DB . '.orders', $query);
+        $orders = [];
+
+        foreach ($cursor as $doc) {
+            $doc = (array)$doc;
+            $doc['_id'] = (string)$doc['_id'];
+            $doc['createdAt'] = isset($doc['createdAt'])
+                ? $doc['createdAt']->toDateTime()
+                    ->setTimezone(new DateTimeZone('Asia/Kolkata'))
+                    ->format('Y-m-d\TH:i:s.000\Z')
+                : null;
+            $orders[] = $doc;
+        }
+
+        echo json_encode(['success' => true, 'orders' => $orders]);
+        exit();
+    }
+
+    echo json_encode(['success' => false, 'error' => 'Invalid request']);
+
+} catch (Exception $e) {
+    error_log('❌ Server error: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+}
+?>
